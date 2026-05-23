@@ -1,0 +1,1116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>LinuxPy Terminal</title>
+<!-- Pyodide — real CPython in the browser -->
+<script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --green:#00ff88;--green2:#00cc66;--dim:#007744;
+  --bg:#0a0f0a;--bg2:#0d140d;--panel:#111811;--border:#1a2e1a;
+  --red:#ff4444;--yellow:#ffcc00;--blue:#44aaff;--cyan:#00ffff;
+  --white:#e0ffe0;--font:'Courier New',Courier,monospace;
+}
+html,body{height:100%;background:var(--bg);color:var(--green);font-family:var(--font);font-size:14px;line-height:1.5;overflow:hidden}
+body::after{content:'';position:fixed;inset:0;background:repeating-linear-gradient(to bottom,transparent 0,transparent 2px,rgba(0,0,0,.15) 2px,rgba(0,0,0,.15) 4px);pointer-events:none;z-index:999}
+#app{display:flex;flex-direction:column;height:100vh;max-width:960px;margin:0 auto;border-left:1px solid var(--border);border-right:1px solid var(--border);animation:fadeIn .4s ease}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+/* title bar */
+#titlebar{display:flex;align-items:center;gap:8px;padding:8px 14px;background:var(--panel);border-bottom:1px solid var(--border);user-select:none;flex-shrink:0}
+.dot{width:12px;height:12px;border-radius:50%}
+.dot.r{background:#ff5f57}.dot.y{background:#febc2e}.dot.g{background:#28c840}
+#titlebar span{flex:1;text-align:center;font-size:11px;color:var(--dim);letter-spacing:2px;text-transform:uppercase}
+#pyodide-status{font-size:11px;color:var(--yellow)}
+/* output */
+#output{flex:1;overflow-y:auto;padding:14px 18px 4px;white-space:pre-wrap;word-break:break-word}
+#output::-webkit-scrollbar{width:6px}
+#output::-webkit-scrollbar-track{background:var(--bg)}
+#output::-webkit-scrollbar-thumb{background:var(--dim);border-radius:3px}
+.line{display:block}
+.line.cmd{color:var(--white)}.line.out{color:var(--green)}.line.err{color:var(--red)}
+.line.dim{color:var(--dim)}.line.info{color:var(--blue)}.line.warn{color:var(--yellow)}
+.line.cyan{color:var(--cyan)}.line.ok{color:#88ff44}.line.py{color:#f0c040}
+/* input */
+#input-row{display:flex;align-items:center;padding:8px 18px 12px;border-top:1px solid var(--border);background:var(--bg2);gap:6px;flex-shrink:0}
+#prompt-label{color:var(--green2);font-weight:bold;white-space:nowrap;font-size:14px;min-width:fit-content}
+#cmd-input{flex:1;background:transparent;border:none;outline:none;color:var(--white);font-family:var(--font);font-size:14px;caret-color:var(--green)}
+#cmd-input::placeholder{color:var(--dim)}
+#cmd-input[type=password]{color:var(--green)}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:0}}
+#cursor{display:inline-block;width:8px;height:14px;background:var(--green);vertical-align:middle;margin-left:2px;animation:blink 1s step-end infinite}
+/* camera overlay */
+#cam-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:1000;flex-direction:column;align-items:center;justify-content:center;gap:12px}
+#cam-overlay.active{display:flex}
+#cam-video{border:2px solid var(--green);max-width:480px;width:90%;border-radius:4px}
+#cam-canvas{display:none}
+#cam-controls{display:flex;gap:12px}
+.cbtn{background:var(--panel);border:1px solid var(--green);color:var(--green);font-family:var(--font);font-size:13px;padding:6px 18px;cursor:pointer;border-radius:2px}
+.cbtn:hover{background:var(--green);color:var(--bg)}
+/* mic overlay */
+#mic-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.88);z-index:1000;flex-direction:column;align-items:center;justify-content:center;gap:16px}
+#mic-overlay.active{display:flex}
+#mic-wrap{width:320px;height:22px;background:var(--panel);border:1px solid var(--green);border-radius:2px;overflow:hidden}
+#mic-bar{height:100%;width:0;background:var(--green);transition:width .05s}
+.overlay-hint{color:var(--dim);font-family:var(--font);font-size:12px}
+@media(max-width:600px){html,body{font-size:12px}#output{padding:10px 10px 4px}#input-row{padding:6px 10px 10px}}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="titlebar">
+    <div class="dot r"></div><div class="dot y"></div><div class="dot g"></div>
+    <span>LinuxPy beta — by Ozzie E.</span>
+    <span id="pyodide-status">Python: loading…</span>
+  </div>
+  <div id="output"></div>
+  <div id="input-row">
+    <span id="prompt-label">/user_# </span>
+    <input id="cmd-input" type="text" autocomplete="off" autocorrect="off"
+           autocapitalize="off" spellcheck="false" placeholder="type a command…">
+    <span id="cursor"></span>
+  </div>
+</div>
+
+<!-- Camera overlay -->
+<div id="cam-overlay">
+  <video id="cam-video" autoplay playsinline muted></video>
+  <canvas id="cam-canvas"></canvas>
+  <div id="cam-controls">
+    <button class="cbtn" id="cam-snap">📸 Snap</button>
+    <button class="cbtn" id="cam-close">✕ Close</button>
+  </div>
+  <div class="overlay-hint">Snap saves photo to VFS + downloads it. Close stops camera.</div>
+</div>
+
+<!-- Mic overlay -->
+<div id="mic-overlay">
+  <div style="color:var(--green);font-family:var(--font)">🎙 Microphone — Live Level</div>
+  <div id="mic-wrap"><div id="mic-bar"></div></div>
+  <div class="overlay-hint">Type any command or press Enter to close mic.</div>
+</div>
+
+<script>
+'use strict';
+// ═══════════════════════════════════════════════════════════════════════════════
+//  LinuxPy — Full in-browser Linux terminal
+//  • Real Python 3 via Pyodide (CPython compiled to WASM)
+//  • Virtual filesystem for all file commands
+//  • Hardware access: camera, mic, GPS, battery, clipboard, notifications
+//  • Legal notes inline where behaviour was adjusted
+// ═══════════════════════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  VIRTUAL FILESYSTEM
+// ─────────────────────────────────────────────────────────────────────────────
+const vfs = { '/': { type:'dir', children:{}, mtime:new Date(), mode:0o755 } };
+
+function vfsNode(path) {
+  if (path === '/') return vfs['/'];
+  const parts = path.replace(/\/+$/,'').split('/').filter(Boolean);
+  let n = vfs['/'];
+  for (const p of parts) {
+    if (!n || n.type !== 'dir' || !n.children[p]) return null;
+    n = n.children[p];
+  }
+  return n;
+}
+function vfsParent(path) {
+  const parts = path.replace(/\/+$/,'').split('/').filter(Boolean);
+  const name = parts.pop();
+  return { parent: vfsNode('/'+parts.join('/')||'/'), name };
+}
+function vfsAbs(p) {
+  if (!p || p === '~') return envVars.HOME;
+  if (p.startsWith('/'))  return p;
+  if (p.startsWith('~/')) return envVars.HOME + p.slice(1);
+  return (cwd === '/' ? '' : cwd) + '/' + p;
+}
+function vfsMkdir(path, {parents=false}={}) {
+  const parts = vfsAbs(path).split('/').filter(Boolean);
+  let n = vfs['/'];
+  for (let i=0;i<parts.length;i++) {
+    if (!n.children[parts[i]]) {
+      if (!parents && i<parts.length-1) throw new Error(`No such file: /${parts.slice(0,i+1).join('/')}`);
+      n.children[parts[i]] = {type:'dir',children:{},mtime:new Date(),mode:0o755};
+    }
+    n = n.children[parts[i]];
+    if (n.type !== 'dir') throw new Error('Not a directory');
+  }
+}
+function vfsWrite(path, content, append=false) {
+  const abs = vfsAbs(path);
+  const {parent,name} = vfsParent(abs);
+  if (!parent) throw new Error('No such directory');
+  if (parent.children[name]?.type === 'dir') throw new Error('Is a directory');
+  const prev = append && parent.children[name] ? parent.children[name].content : '';
+  parent.children[name] = {type:'file',content:prev+content,mtime:new Date(),mode:0o644};
+}
+function vfsRead(path) {
+  const n = vfsNode(vfsAbs(path));
+  if (!n) throw new Error(`No such file: ${path}`);
+  if (n.type === 'dir') throw new Error(`Is a directory: ${path}`);
+  return n.content;
+}
+function vfsList(path) {
+  const n = vfsNode(vfsAbs(path));
+  if (!n) throw new Error(`No such file or directory: ${path}`);
+  if (n.type !== 'dir') throw new Error(`Not a directory: ${path}`);
+  return Object.entries(n.children).map(([name,node])=>({name,...node}));
+}
+function vfsExists(p)  { return vfsNode(vfsAbs(p)) !== null; }
+function vfsIsDir(p)   { const n=vfsNode(vfsAbs(p)); return n&&n.type==='dir'; }
+function vfsRemove(path, recursive=false) {
+  const {parent,name} = vfsParent(vfsAbs(path));
+  if (!parent||!parent.children[name]) throw new Error(`No such file: ${path}`);
+  if (parent.children[name].type==='dir' && !recursive) throw new Error(`Is a directory (use rm -r): ${path}`);
+  delete parent.children[name];
+}
+function vfsCopy(src,dst) {
+  const sn = vfsNode(vfsAbs(src));
+  if (!sn) throw new Error(`No such file: ${src}`);
+  const {parent,name} = vfsParent(vfsAbs(dst));
+  if (!parent) throw new Error('No such directory for destination');
+  parent.children[name] = JSON.parse(JSON.stringify(sn));
+}
+function vfsMove(src,dst) { vfsCopy(src,dst); vfsRemove(src,true); }
+function vfsWalk(path,res=[]) {
+  const n = vfsNode(vfsAbs(path));
+  if (!n||n.type!=='dir') return res;
+  for (const [name,child] of Object.entries(n.children)) {
+    const cp = (vfsAbs(path)==='/'?'':vfsAbs(path))+'/'+name;
+    res.push({path:cp,name,type:child.type});
+    if (child.type==='dir') vfsWalk(cp,res);
+  }
+  return res;
+}
+function vfsDirSize(path) {
+  return vfsWalk(path).filter(e=>e.type==='file')
+    .reduce((s,e)=>s+(vfsNode(e.path)?.content?.length||0),0);
+}
+
+// Init dirs
+for (const d of ['/home','/tmp','/dev','/proc','/media','/usr/bin'])
+  vfsMkdir(d,{parents:true});
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  STATE
+// ─────────────────────────────────────────────────────────────────────────────
+let cwd = '/home';
+let loggedIn = false;
+let inPythonMode = false;      // true while Pyodide REPL is active
+let pythonBuffer = '';         // accumulated multi-line Python input
+let cmdHistory = [];
+let histIdx = -1;
+let envVars = {USER:'web-user',HOME:'/home',SHELL:'linuxpy',TERM:'xterm-256color',PATH:'/usr/bin:/bin'};
+let awaitingPassword = null;
+let pyodide = null;            // Pyodide instance
+let pyodideReady = false;
+const BOOT_TIME = Date.now();
+
+// Hardware handles
+let camStream=null, micStream=null, micAnalyser=null, micRaf=null;
+const perms = {};
+
+// Fake process table
+const PROCS = [
+  {pid:1,  user:'root',     cpu:'0.0',mem:'0.1',cmd:'init'},
+  {pid:42, user:'root',     cpu:'0.0',mem:'0.3',cmd:'kworker/0:1'},
+  {pid:101,user:'web-user', cpu:'0.2',mem:'1.4',cmd:'linuxpy-shell'},
+  {pid:202,user:'web-user', cpu:'0.0',mem:'0.8',cmd:'bash'},
+  {pid:303,user:'web-user', cpu:'0.0',mem:'2.1',cmd:'python3 (pyodide)'},
+];
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  DOM
+// ─────────────────────────────────────────────────────────────────────────────
+const outputEl   = document.getElementById('output');
+const inputEl    = document.getElementById('cmd-input');
+const promptEl   = document.getElementById('prompt-label');
+const pyStatus   = document.getElementById('pyodide-status');
+const camOverlay = document.getElementById('cam-overlay');
+const camVideo   = document.getElementById('cam-video');
+const camCanvas  = document.getElementById('cam-canvas');
+const micOverlay = document.getElementById('mic-overlay');
+const micBarEl   = document.getElementById('mic-bar');
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  OUTPUT HELPERS
+// ─────────────────────────────────────────────────────────────────────────────
+function print(text='', cls='out') {
+  String(text).split('\n').forEach(line => {
+    const s = document.createElement('span');
+    s.className = 'line ' + cls;
+    s.textContent = line;
+    outputEl.appendChild(s);
+  });
+  outputEl.scrollTop = outputEl.scrollHeight;
+}
+const printErr  = t => print(t,'err');
+const printDim  = t => print(t,'dim');
+const printInfo = t => print(t,'info');
+const printWarn = t => print(t,'warn');
+const printCyan = t => print(t,'cyan');
+const printOk   = t => print(t,'ok');
+const printPy   = t => print(t,'py');
+
+function clearScreen() {
+  outputEl.innerHTML = '';
+  print('Welcome to LinuxPy beta');
+  print('By: Ozzie E.','dim');
+  print('');
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PYODIDE — load real CPython in the background
+// ─────────────────────────────────────────────────────────────────────────────
+async function initPyodide() {
+  try {
+    pyStatus.textContent = 'Python: loading…';
+    pyodide = await loadPyodide({
+      stdout: text => printPy(text),
+      stderr: text => printErr(text),
+    });
+    // Wire print/input so Python output goes to our terminal
+    pyodide.runPython(`
+import sys, io
+
+class TermWriter:
+    def __init__(self, fn):
+        self._fn = fn
+    def write(self, s):
+        if s:
+            import js
+            js.termPrint(s)
+    def flush(self): pass
+
+sys.stdout = TermWriter('stdout')
+sys.stderr = TermWriter('stderr')
+`);
+    pyodideReady = true;
+    pyStatus.textContent = 'Python: ready ✓';
+    pyStatus.style.color = 'var(--green)';
+  } catch(e) {
+    pyStatus.textContent = 'Python: failed ✗';
+    pyStatus.style.color = 'var(--red)';
+    console.error('Pyodide load error:', e);
+  }
+}
+
+// Expose terminal print to Pyodide's Python
+window.termPrint = (text) => printPy(text);
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PASSWORD / AUTH
+// ─────────────────────────────────────────────────────────────────────────────
+const PASS_KEY = 'linuxpy_auth_v3';
+async function hashPw(pw, saltHex) {
+  const km = await crypto.subtle.importKey('raw', new TextEncoder().encode(pw), 'PBKDF2', false, ['deriveBits']);
+  const bits = await crypto.subtle.deriveBits({name:'PBKDF2',hash:'SHA-256',salt:hexToBytes(saltHex),iterations:100000}, km, 256);
+  return bytesToHex(new Uint8Array(bits));
+}
+function randomHex(n=32) { const a=new Uint8Array(n); crypto.getRandomValues(a); return bytesToHex(a); }
+function bytesToHex(a) { return Array.from(a).map(b=>b.toString(16).padStart(2,'0')).join(''); }
+function hexToBytes(h) { const a=new Uint8Array(h.length/2); for(let i=0;i<a.length;i++) a[i]=parseInt(h.slice(i*2,i*2+2),16); return a; }
+
+async function startAuth() {
+  const stored = localStorage.getItem(PASS_KEY);
+  if (!stored) { print('No password set. Create one:','warn'); }
+  else          { print('Enter password:','warn'); }
+  inputEl.type = 'password';
+  awaitingPassword = { mode: stored ? 'login' : 'create' };
+  updatePrompt();
+}
+async function handlePwInput(val) {
+  const stored = localStorage.getItem(PASS_KEY);
+  if (awaitingPassword.mode === 'create') {
+    if (!val.trim()) { printErr('Password cannot be empty.'); return; }
+    const salt = randomHex(); const hash = await hashPw(val,salt);
+    localStorage.setItem(PASS_KEY, JSON.stringify({salt,hash}));
+    awaitingPassword = null; inputEl.type = 'text';
+    printOk('Password created!'); enterShell();
+  } else {
+    const {salt,hash} = JSON.parse(stored);
+    if (await hashPw(val,salt) === hash) {
+      awaitingPassword = null; inputEl.type = 'text'; enterShell();
+    } else {
+      printErr('Incorrect password.'); print('Enter password:','warn');
+    }
+  }
+}
+function enterShell() {
+  loggedIn = true;
+  print('');
+  print('Welcome to LinuxPy beta');
+  print('By: Ozzie E.','dim');
+  print('Type "help" for all commands. Python loads automatically.','dim');
+  print('');
+  updatePrompt();
+}
+function updatePrompt() {
+  if (awaitingPassword) { promptEl.textContent = '🔒 '; }
+  else if (inPythonMode) {
+    promptEl.textContent = pythonBuffer.trim() ? '... ' : '>>> ';
+    promptEl.style.color = 'var(--yellow)';
+  } else if (loggedIn) {
+    promptEl.textContent = `${envVars.USER}@linuxpy:${cwd} $ `;
+    promptEl.style.color = 'var(--green2)';
+  } else {
+    promptEl.textContent = '> ';
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  PYTHON REPL (runs inside this terminal via Pyodide)
+// ─────────────────────────────────────────────────────────────────────────────
+async function enterPython() {
+  if (!pyodideReady) {
+    printWarn('Python is still loading — please wait a moment and try again.');
+    return;
+  }
+  inPythonMode = true;
+  pythonBuffer = '';
+  print('');
+  printPy(`Python ${pyodide.version} (Pyodide/WASM) — LinuxPy embedded REPL`);
+  printPy('Type exit() or quit() to return to LinuxPy shell.');
+  print('');
+  updatePrompt();
+}
+
+async function runPythonLine(line) {
+  if (line.trim() === 'exit()' || line.trim() === 'quit()' || line.trim() === 'exit' || line.trim() === 'quit') {
+    inPythonMode = false; pythonBuffer = '';
+    print('{exiting Python}','dim'); print('');
+    updatePrompt(); return;
+  }
+
+  // Detect if we're in a block (line ends with : or buffer already has content)
+  const isBlock = line.endsWith(':') || (pythonBuffer && line.startsWith(' '));
+  pythonBuffer += line + '\n';
+
+  // If it's a block starter or a continuation, wait for blank line to execute
+  if (isBlock || (pythonBuffer.trim() && line.trim() === '')) {
+    if (line.trim() !== '') { updatePrompt(); return; } // still collecting
+  }
+
+  const code = pythonBuffer;
+  pythonBuffer = '';
+
+  if (!code.trim()) { updatePrompt(); return; }
+
+  try {
+    // Run code; stdout/stderr already wired to our terminal
+    const result = await pyodide.runPythonAsync(code);
+    // Only print repr if there's a non-None return value and no stdout was produced
+    if (result !== undefined && result !== null) {
+      const rep = pyodide.runPython(`repr(${JSON.stringify(result)})`);
+      // Don't double-print strings that are just echoed
+    }
+  } catch(e) {
+    // Extract just the useful part of Pyodide's traceback
+    const msg = String(e).split('\n').filter(l=>l.trim()).slice(-3).join('\n');
+    printErr(msg);
+  }
+  updatePrompt();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  INPUT HANDLING
+// ─────────────────────────────────────────────────────────────────────────────
+inputEl.addEventListener('keydown', async e => {
+  if (e.key === 'ArrowUp' && !inPythonMode) {
+    e.preventDefault();
+    if (histIdx < cmdHistory.length-1) { histIdx++; inputEl.value = cmdHistory[cmdHistory.length-1-histIdx]; }
+  } else if (e.key === 'ArrowDown' && !inPythonMode) {
+    e.preventDefault();
+    if (histIdx > 0) { histIdx--; inputEl.value = cmdHistory[cmdHistory.length-1-histIdx]; }
+    else { histIdx=-1; inputEl.value=''; }
+  } else if (e.key === 'Tab') {
+    e.preventDefault();
+    if (!inPythonMode) tabComplete(inputEl.value);
+  } else if (e.key === 'c' && e.ctrlKey) {
+    e.preventDefault();
+    if (inPythonMode) { inPythonMode=false; pythonBuffer=''; print('^C (Python exited)','warn'); print(''); }
+    else { print('^C','warn'); }
+    closeCam(); closeMic(); updatePrompt();
+  } else if (e.key === 'd' && e.ctrlKey) {
+    e.preventDefault();
+    if (inPythonMode) { inPythonMode=false; pythonBuffer=''; print('exit','dim'); print(''); updatePrompt(); }
+  } else if (e.key === 'Enter') {
+    const val = inputEl.value;
+    inputEl.value = ''; histIdx = -1;
+
+    if (awaitingPassword) { print(''); await handlePwInput(val); return; }
+    if (inPythonMode) {
+      print((pythonBuffer.trim() ? '... ' : '>>> ') + val, 'py');
+      await runPythonLine(val);
+      return;
+    }
+    if (!val.trim()) return;
+    print(promptEl.textContent + val, 'cmd');
+    cmdHistory.push(val);
+    if (micStream) closeMic();
+    await runCommand(val.trim());
+    updatePrompt();
+  }
+});
+document.addEventListener('click', () => inputEl.focus());
+inputEl.focus();
+
+// Tab-complete
+const ALL_CMDS = ['ls','cd','pwd','mkdir','rmdir','touch','rm','cat','echo','cp','mv',
+  'find','grep','wc','head','tail','sort','uniq','tr','cut','tee','base64','md5sum',
+  'sha256sum','chmod','env','export','history','date','whoami','uname','uptime','df',
+  'du','free','ps','kill','top','sleep','yes','seq','ping','nslookup','curl','wget',
+  'open','xdg-open','camera','webcam','mic','microphone','geolocate','location',
+  'battery','sysinfo','netinfo','ifconfig','lscpu','lsusb','lspci','clipboard',
+  'notify','upload','download','perms','passwd','python3','pip','clear','help','exit'];
+
+function tabComplete(partial) {
+  const parts = partial.split(' ');
+  if (parts.length === 1) {
+    const m = ALL_CMDS.filter(c=>c.startsWith(parts[0]));
+    if (m.length===1) inputEl.value = m[0]+' ';
+    else if (m.length>1) print(m.join('  '),'dim');
+  } else {
+    const prefix = parts[parts.length-1];
+    const dir = prefix.includes('/') ? prefix.slice(0,prefix.lastIndexOf('/')+1) : '';
+    const base = prefix.includes('/') ? prefix.slice(prefix.lastIndexOf('/')+1) : prefix;
+    try {
+      const m = vfsList(dir||cwd).filter(e=>e.name.startsWith(base));
+      if (m.length===1) { parts[parts.length-1]=dir+m[0].name+(m[0].type==='dir'?'/':''); inputEl.value=parts.join(' '); }
+      else if (m.length>1) print(m.map(e=>e.name).join('  '),'dim');
+    } catch(_) {}
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  HARDWARE
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Camera
+async function openCam(facing='user') {
+  try {
+    printInfo('Requesting camera permission…');
+    camStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:facing,width:{ideal:1280},height:{ideal:720}},audio:false});
+    perms.camera = true;
+    camVideo.srcObject = camStream;
+    camOverlay.classList.add('active');
+    printOk('Camera open. Snap to capture, Close to exit.');
+  } catch(e) {
+    printErr('camera: '+(e.name==='NotAllowedError'?'Permission denied.':e.message));
+  }
+}
+function closeCam() {
+  if (camStream) { camStream.getTracks().forEach(t=>t.stop()); camStream=null; }
+  camOverlay.classList.remove('active');
+}
+document.getElementById('cam-close').addEventListener('click', ()=>{ closeCam(); print('Camera closed.','dim'); });
+document.getElementById('cam-snap').addEventListener('click', ()=>{
+  if (!camStream) return;
+  camCanvas.width=camVideo.videoWidth; camCanvas.height=camVideo.videoHeight;
+  camCanvas.getContext('2d').drawImage(camVideo,0,0);
+  const dataURL = camCanvas.toDataURL('image/png');
+  const fname = `snap_${Date.now()}.png`;
+  vfsWrite(fname, dataURL);
+  printOk(`📸 Saved ${fname} to VFS (${cwd}/${fname})`);
+  // Trigger real download
+  const a = document.createElement('a'); a.href=dataURL; a.download=fname; a.click();
+  printDim('   Also downloaded to your computer.');
+});
+
+// Mic
+async function openMic() {
+  try {
+    printInfo('Requesting microphone permission…');
+    micStream = await navigator.mediaDevices.getUserMedia({audio:true,video:false});
+    perms.microphone = true;
+    const ctx = new (window.AudioContext||window.webkitAudioContext)();
+    const src = ctx.createMediaStreamSource(micStream);
+    micAnalyser = ctx.createAnalyser(); micAnalyser.fftSize=256;
+    src.connect(micAnalyser);
+    micOverlay.classList.add('active');
+    printOk('Mic open — level meter shown. Press Enter to close.');
+    animateMic();
+  } catch(e) { printErr('mic: '+(e.name==='NotAllowedError'?'Permission denied.':e.message)); }
+}
+function closeMic() {
+  if (micRaf) { cancelAnimationFrame(micRaf); micRaf=null; }
+  if (micStream) { micStream.getTracks().forEach(t=>t.stop()); micStream=null; micAnalyser=null; }
+  micOverlay.classList.remove('active');
+}
+function animateMic() {
+  if (!micAnalyser) return;
+  const data = new Uint8Array(micAnalyser.frequencyBinCount);
+  function frame() {
+    micAnalyser.getByteFrequencyData(data);
+    const avg = data.reduce((a,b)=>a+b,0)/data.length;
+    const pct = Math.min(100, avg/128*200);
+    micBarEl.style.width = pct+'%';
+    micBarEl.style.background = pct>75?'#ff4444':pct>40?'#ffcc00':'#00ff88';
+    micRaf = requestAnimationFrame(frame);
+  }
+  frame();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  HELP
+// ─────────────────────────────────────────────────────────────────────────────
+const HELP = `
+┌──────────────────────────────────────────────────────────────────────┐
+│                    LinuxPy — Command Reference                       │
+├─────────────────────────────┬────────────────────────────────────────┤
+│ PYTHON                      │                                        │
+│ python3                     │ Real Python 3 REPL (Pyodide/WASM)      │
+│ pip install <pkg>           │ Install Python package via Pyodide     │
+├─────────────────────────────┼────────────────────────────────────────┤
+│ FILESYSTEM                  │                                        │
+│ ls [-al] [path]             │ List files                             │
+│ cd <path>  (~ = home)       │ Change directory                       │
+│ pwd                         │ Print working directory                │
+│ mkdir [-p] / rmdir          │ Create / remove directory              │
+│ touch / rm [-r]             │ Create / remove file                   │
+│ cat / head / tail           │ Read file contents                     │
+│ echo <text> [> file]        │ Print or redirect text                 │
+│ cp / mv                     │ Copy / move                            │
+│ find / grep [-i]            │ Search files / text                    │
+│ wc / sort / uniq            │ Count / sort / deduplicate             │
+│ cut / tr / tee              │ Transform text                         │
+│ base64 [-d] / sha256sum     │ Encode / hash files                    │
+│ chmod <mode> <file>         │ Change permissions (octal)             │
+│ upload                      │ Upload file from computer → VFS        │
+│ download <file>             │ Download VFS file → computer           │
+├─────────────────────────────┼────────────────────────────────────────┤
+│ HARDWARE (needs permission) │                                        │
+│ camera [front|back]         │ Live webcam + snap photo               │
+│ mic / microphone            │ Live mic level meter                   │
+│ geolocate [--hd]            │ GPS coordinates                        │
+│ battery                     │ Battery level + charging status        │
+│ clipboard read/write <txt>  │ Read / write clipboard                 │
+│ notify <title> [body]       │ Send desktop notification              │
+├─────────────────────────────┼────────────────────────────────────────┤
+│ NETWORK (browser-limited)   │                                        │
+│ curl / wget <url>           │ Fetch URL (CORS-restricted, own use)   │
+│ ping <host>                 │ Simulated ICMP ping                    │
+│ nslookup <host>             │ Simulated DNS lookup                   │
+│ netinfo / ifconfig          │ Network info                           │
+│ open / xdg-open <url>       │ Open URL in new tab                    │
+├─────────────────────────────┼────────────────────────────────────────┤
+│ SYSTEM                      │                                        │
+│ sysinfo / lscpu / free      │ Hardware + memory info                 │
+│ ps / kill / top             │ Process management                     │
+│ df / du [path]              │ Disk / directory usage                 │
+│ uptime / date               │ Time info                              │
+│ sleep <n>                   │ Wait N seconds                         │
+│ env / export VAR=val        │ Environment variables                  │
+│ whoami / uname [-a]         │ User / OS info                         │
+│ history                     │ Command history (↑↓ to navigate)      │
+│ perms                       │ Show granted permissions               │
+│ passwd                      │ Change password                        │
+│ clear / help / exit         │ Terminal control                       │
+└─────────────────────────────┴────────────────────────────────────────┘
+ Tab=autocomplete  Ctrl+C=interrupt  Ctrl+D=exit Python  ↑↓=history`;
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  COMMAND DISPATCHER
+// ─────────────────────────────────────────────────────────────────────────────
+function parseCmd(com) {
+  const parts = com.trim().split(/\s+/);
+  const flags = new Set(parts.filter(p=>p.startsWith('-')));
+  const args  = parts.slice(1).filter(p=>!p.startsWith('-'));
+  return {base:parts[0], flags, args, parts};
+}
+function nLines(flags,def=10) {
+  for (const f of flags) if (f.startsWith('-n')&&/^\d+$/.test(f.slice(2))) return +f.slice(2);
+  return def;
+}
+
+async function runCommand(com) {
+  if (!loggedIn) return;
+  const {base, flags, args} = parseCmd(com);
+
+  // ── clear ──────────────────────────────────────────────────────────────
+  if (com === 'clear') { clearScreen(); return; }
+
+  // ── help ───────────────────────────────────────────────────────────────
+  if (com === 'help') { print(HELP); return; }
+
+  // ── exit ───────────────────────────────────────────────────────────────
+  if (com === 'exit') {
+    loggedIn=false; closeCam(); closeMic();
+    print('Goodbye!'); promptEl.textContent='> ';
+    printDim('(Refresh to log back in.)'); return;
+  }
+
+  // ── passwd ─────────────────────────────────────────────────────────────
+  if (com === 'passwd') {
+    printWarn('Enter new password:'); inputEl.type='password';
+    awaitingPassword={mode:'create'}; return;
+  }
+
+  // ── perms ──────────────────────────────────────────────────────────────
+  if (com === 'perms') {
+    printCyan('Granted permissions:');
+    const ks = Object.keys(perms).filter(k=>perms[k]);
+    if (ks.length) ks.forEach(k=>printOk('  ✓ '+k)); else printDim('  (none yet)');
+    return;
+  }
+
+  // ── python3 ─────────────────────────────────────────────────────────────
+  if (com === 'python3') { await enterPython(); return; }
+
+  // ── pip install — uses Pyodide's micropip ─────────────────────────────
+  if (base === 'pip' && args[0] === 'install') {
+    if (!pyodideReady) { printWarn('Python not ready yet — wait a moment.'); return; }
+    const pkg = args[1];
+    if (!pkg) { printErr('pip: missing package name'); return; }
+    printInfo(`Installing ${pkg} via micropip…`);
+    try {
+      await pyodide.loadPackagesFromImports(`import ${pkg}`).catch(()=>{});
+      await pyodide.runPythonAsync(`import micropip; await micropip.install('${pkg}')`);
+      printOk(`✓ ${pkg} installed. You can now import it in python3.`);
+    } catch(e) {
+      printErr(`pip: could not install ${pkg}: ${e.message||e}`);
+      printDim('Note: Only packages in the Pyodide registry are available.');
+    }
+    return;
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  //  HARDWARE COMMANDS
+  // ══════════════════════════════════════════════════════════════════════
+
+  if (base==='camera'||base==='webcam') { await openCam(args[0]==='back'?'environment':'user'); return; }
+
+  if (base==='mic'||base==='microphone') {
+    if (micStream) { closeMic(); print('Mic closed.','dim'); } else await openMic(); return;
+  }
+
+  if (base==='geolocate'||base==='location') {
+    if (!navigator.geolocation) { printErr('Geolocation not supported by this browser.'); return; }
+    printInfo('Requesting location access…');
+    navigator.geolocation.getCurrentPosition(pos=>{
+      const {latitude:lat,longitude:lon,altitude:alt,accuracy:acc,speed} = pos.coords;
+      printCyan('──── GPS / Geolocation ────');
+      print(`  Latitude:   ${lat.toFixed(6)}°`);
+      print(`  Longitude:  ${lon.toFixed(6)}°`);
+      if (alt!=null) print(`  Altitude:   ${alt.toFixed(1)} m`);
+      print(`  Accuracy:   ±${acc.toFixed(0)} m`);
+      if (speed!=null) print(`  Speed:      ${speed.toFixed(1)} m/s`);
+      print(`  Timestamp:  ${new Date(pos.timestamp).toLocaleString()}`);
+      printDim(`  Maps: https://maps.google.com/?q=${lat},${lon}`);
+      vfsWrite('location.txt', `lat=${lat}\nlon=${lon}\nacc=${acc}\n`);
+      printDim('  Saved → location.txt');
+      perms.geolocation=true;
+    }, err=>{
+      printErr('geolocate: '+(err.code===1?'Permission denied.':err.code===2?'Position unavailable.':err.message));
+    }, {enableHighAccuracy:flags.has('--hd'),timeout:10000});
+    return;
+  }
+
+  if (com==='battery') {
+    if (!navigator.getBattery) { printErr('Battery API not supported by this browser.'); return; }
+    const b = await navigator.getBattery();
+    const pct = Math.round(b.level*100);
+    const bar = '█'.repeat(Math.round(pct/5))+'░'.repeat(20-Math.round(pct/5));
+    printCyan('──── Battery ────');
+    print(`  Level:   [${bar}] ${pct}%`, pct<20?'err':pct<50?'warn':'ok');
+    print(`  Charging: ${b.charging?'⚡ Yes':'No'}`);
+    if (!b.charging&&b.dischargingTime!==Infinity) print(`  Time left: ${Math.round(b.dischargingTime/60)} min`);
+    if (b.charging&&b.chargingTime!==Infinity)     print(`  Full in:   ${Math.round(b.chargingTime/60)} min`);
+    perms.battery=true; return;
+  }
+
+  if (base==='clipboard') {
+    // Legal note: only reads/writes the user's own clipboard on their own machine.
+    if (args[0]==='read') {
+      try { const t=await navigator.clipboard.readText(); printCyan('──── Clipboard ────'); print(t||'(empty)'); perms['clipboard-read']=true; }
+      catch(e) { printErr('clipboard: '+e.message); }
+    } else if (args[0]==='write') {
+      const text = com.slice(com.indexOf('write')+6).trim();
+      try { await navigator.clipboard.writeText(text); printOk(`Copied to clipboard.`); perms['clipboard-write']=true; }
+      catch(e) { printErr('clipboard: '+e.message); }
+    } else { printErr('Usage: clipboard read   OR   clipboard write <text>'); }
+    return;
+  }
+
+  if (base==='notify') {
+    // Legal note: user must grant Notification permission explicitly.
+    if (!('Notification' in window)) { printErr('Notifications not supported.'); return; }
+    let p = Notification.permission;
+    if (p==='default') p = await Notification.requestPermission();
+    if (p!=='granted') { printErr('Notification permission denied.'); return; }
+    const title = args[0]||'LinuxPy'; const body = args.slice(1).join(' ')||'Hello from LinuxPy!';
+    new Notification(title,{body});
+    printOk(`Notification sent: "${title}"`); perms.notifications=true; return;
+  }
+
+  if (base==='upload') {
+    printInfo('Opening file picker…');
+    const inp = document.createElement('input'); inp.type='file'; inp.multiple=true;
+    inp.onchange = async ()=>{
+      for (const file of Array.from(inp.files)) {
+        try { vfsWrite(file.name, await file.text()); printOk(`  uploaded: ${file.name} (${file.size.toLocaleString()} bytes → VFS)`); }
+        catch(e) { printErr(`  upload: ${file.name}: ${e.message}`); }
+      }
+      updatePrompt();
+    };
+    inp.click(); return;
+  }
+
+  if (base==='download') {
+    if (!args.length) { printErr('Usage: download <vfs-file>'); return; }
+    try {
+      const content = vfsRead(args[0]);
+      const fname = args[0].split('/').pop();
+      const url = URL.createObjectURL(new Blob([content],{type:'text/plain'}));
+      const a = document.createElement('a'); a.href=url; a.download=fname; a.click();
+      URL.revokeObjectURL(url);
+      printOk(`Download triggered: ${fname}`);
+    } catch(e) { printErr('download: '+e.message); }
+    return;
+  }
+
+  // ── sysinfo ──────────────────────────────────────────────────────────
+  if (com==='sysinfo') {
+    printCyan('──── System Info ────');
+    const nav=navigator;
+    print(`  Platform:        ${nav.platform||'unknown'}`);
+    print(`  User Agent:      ${nav.userAgent}`);
+    print(`  Language:        ${nav.language}`);
+    print(`  Logical cores:   ${nav.hardwareConcurrency||'?'}`);
+    print(`  Device Memory:   ${nav.deviceMemory?nav.deviceMemory+' GB (approx)':'not reported'}`);
+    print(`  Screen:          ${screen.width}×${screen.height}  (${screen.colorDepth}-bit)`);
+    print(`  Viewport:        ${window.innerWidth}×${window.innerHeight}`);
+    print(`  Pixel ratio:     ${window.devicePixelRatio}`);
+    print(`  Touch points:    ${nav.maxTouchPoints}`);
+    print(`  Online:          ${nav.onLine?'Yes':'No'}`);
+    if (nav.connection) { const c=nav.connection; print(`  Connection:      ${c.effectiveType||''} ${c.downlink||'?'}Mbps RTT:${c.rtt||'?'}ms`); }
+    print(`  Python:          ${pyodideReady?'Pyodide '+pyodide.version:'loading…'}`,'py');
+    return;
+  }
+
+  if (base==='netinfo'||base==='ifconfig') {
+    printCyan('──── Network ────');
+    print(`  Online: ${navigator.onLine?'Yes':'No'}`);
+    if (navigator.connection) {
+      const c=navigator.connection;
+      print(`  Type:       ${c.type||'unknown'}`);
+      print(`  Effective:  ${c.effectiveType||'?'}`);
+      print(`  Downlink:   ${c.downlink||'?'} Mbps`);
+      print(`  RTT:        ${c.rtt||'?'} ms`);
+    } else printDim('  (Network Information API unavailable in this browser)');
+    printDim('  Note: Real IP/MAC not accessible from browser sandbox.');
+    return;
+  }
+
+  if (com==='lscpu') {
+    printCyan('──── CPU ────');
+    print(`  Architecture:  ${navigator.platform||'x86_64'}`);
+    print(`  Logical cores: ${navigator.hardwareConcurrency||'?'}`);
+    printDim('  (Full CPU model not exposed — browser privacy sandbox)'); return;
+  }
+
+  if (com==='free') {
+    printCyan('──── Memory ────');
+    if (navigator.deviceMemory) print(`  Device RAM (approx): ${navigator.deviceMemory} GB`);
+    else printDim('  Device Memory API unavailable.');
+    if (performance.memory) {
+      const m=performance.memory;
+      print(`  JS Heap limit: ${(m.jsHeapSizeLimit/1048576).toFixed(1)} MB`);
+      print(`  JS Heap used:  ${(m.usedJSHeapSize/1048576).toFixed(1)} MB`);
+    }
+    return;
+  }
+
+  if (com==='lsusb') { printCyan('Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub'); printDim('(Simulated — USB enumeration requires native access)'); return; }
+  if (com==='lspci') { printCyan('00:00.0 Host bridge: Intel Corporation 8th Gen Core Processor'); print('00:02.0 VGA compatible controller: Intel UHD Graphics'); printDim('(Simulated — PCI bus requires native access)'); return; }
+
+  // ── curl / wget ──────────────────────────────────────────────────────
+  // Legal note: fetches are CORS-restricted by the browser. The user is
+  // responsible for only fetching content they have rights to access.
+  // We show a reminder on every fetch.
+  if (base==='curl'||base==='wget') {
+    const url = args.find(a=>a.startsWith('http'))||args[0];
+    if (!url) { printErr(`${base}: no URL specified`); return; }
+    const outFile = base==='wget' ? (url.split('/').pop()||'index.html') : (flags.has('-o')?args[args.indexOf('-o')+1]:null);
+    printDim('⚠ Only fetch URLs you have the right to access. CORS applies.');
+    printInfo(`Fetching ${url}…`);
+    try {
+      const resp = await fetch(url);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const text = await resp.text();
+      if (outFile) { vfsWrite(outFile,text); printOk(`Saved ${text.length.toLocaleString()} bytes → ${outFile}`); }
+      else { print(text.slice(0,3000)); if (text.length>3000) printDim(`… (${text.length.toLocaleString()} bytes total, truncated)`); }
+    } catch(e) { printErr(`${base}: ${e.message}`); printDim('(CORS may block cross-origin requests)'); }
+    return;
+  }
+
+  if (base==='ping') {
+    const host=args[0]||'localhost', count=Math.min(parseInt(args[1])||4,20);
+    print(`PING ${host}: 56 bytes of data.`);
+    for (let i=0;i<count;i++) { await new Promise(r=>setTimeout(r,600)); print(`64 bytes from ${host}: icmp_seq=${i+1} ttl=64 time=${(Math.random()*30+5).toFixed(3)} ms`); }
+    print(`\n--- ${host} ping statistics ---`);
+    print(`${count} packets transmitted, ${count} received, 0% packet loss`);
+    printDim('(Simulated — browsers cannot send raw ICMP packets)'); return;
+  }
+
+  if (base==='nslookup') {
+    if (!args[0]) { printErr('nslookup: missing host'); return; }
+    print(`Server: 8.8.8.8\nAddress: 8.8.8.8#53\n`,'dim');
+    print(`Non-authoritative answer:`);
+    print(`Name:    ${args[0]}`);
+    print(`Address: 93.184.216.${Math.floor(Math.random()*254)+1}  (simulated)`);
+    printDim('(Browsers cannot make raw DNS queries — simulated response)'); return;
+  }
+
+  if (base==='open'||base==='xdg-open') {
+    const t=args[0]; if(!t){printErr(`${base}: missing argument`);return;}
+    window.open(t.startsWith('http')?t:'https://'+t,'_blank');
+    printOk('Opened in new tab.'); return;
+  }
+
+  // ══════════════════════════════════════════════════════════════════════
+  //  FILESYSTEM COMMANDS
+  // ══════════════════════════════════════════════════════════════════════
+
+  if (base==='ls') {
+    const target=args[0]||cwd, showHidden=flags.has('-a'), longFmt=flags.has('-l');
+    try {
+      let entries=vfsList(vfsAbs(target));
+      if (!showHidden) entries=entries.filter(e=>!e.name.startsWith('.'));
+      entries.sort((a,b)=>a.name.localeCompare(b.name));
+      if (!entries.length){printDim('(empty)');return;}
+      if (longFmt) {
+        for (const e of entries) {
+          const kind=e.type==='dir'?'d':'-';
+          const perm=e.type==='dir'?'rwxr-xr-x':'rw-r--r--';
+          const size=e.type==='file'?String(e.content.length).padStart(8):'       -';
+          const mtime=e.mtime?new Date(e.mtime).toLocaleString('en-US',{month:'short',day:'2-digit',hour:'2-digit',minute:'2-digit'}):'';
+          print(`${kind}${perm}  1 ${envVars.USER} ${size}  ${mtime}  ${e.name}`);
+        }
+      } else { print(entries.map(e=>e.type==='dir'?e.name+'/':e.name).join('  ')); }
+    } catch(e){printErr('ls: '+e.message);}
+    return;
+  }
+
+  if (base==='cd') {
+    const t=args[0]||'~', abs=vfsAbs(t);
+    if (!vfsExists(abs)) printErr(`cd: no such file or directory: ${t}`);
+    else if (!vfsIsDir(abs)) printErr(`cd: not a directory: ${t}`);
+    else cwd=abs;
+    return;
+  }
+
+  if (com==='pwd') { print(cwd); return; }
+
+  if (base==='mkdir') {
+    if (!args.length){printErr('mkdir: missing operand');return;}
+    try{vfsMkdir(args[0],{parents:flags.has('-p')});}catch(e){printErr('mkdir: '+e.message);}
+    return;
+  }
+  if (base==='rmdir') {
+    if (!args.length){printErr('rmdir: missing operand');return;}
+    try{
+      const n=vfsNode(vfsAbs(args[0]));
+      if (!n) throw new Error(`No such file: ${args[0]}`);
+      if (n.type!=='dir') throw new Error('Not a directory');
+      if (Object.keys(n.children).length) throw new Error('Directory not empty');
+      vfsRemove(args[0]);
+    }catch(e){printErr('rmdir: '+e.message);}
+    return;
+  }
+  if (base==='touch') {
+    if (!args.length){printErr('touch: missing file operand');return;}
+    try{const n=vfsNode(vfsAbs(args[0]));if(n)n.mtime=new Date();else vfsWrite(args[0],'');}
+    catch(e){printErr('touch: '+e.message);}
+    return;
+  }
+  if (base==='rm') {
+    if (!args.length){printErr('rm: missing operand');return;}
+    for(const t of args){try{vfsRemove(t,flags.has('-r')||flags.has('-rf'));}catch(e){printErr('rm: '+e.message);}}
+    return;
+  }
+  if (base==='cat') {
+    if (!args.length){printErr('cat: missing file operand');return;}
+    for(const f of args){try{print(vfsRead(f));}catch(e){printErr('cat: '+e.message);}}
+    return;
+  }
+  if (base==='echo') {
+    const rest=com.slice(5);
+    try{
+      if (rest.includes('>>')) { const[t,f]=rest.split('>>'); vfsWrite(f.trim(),t.trim().replace(/^['"]|['"]$/g,'')+'\n',true); }
+      else if (rest.includes('>')) { const[t,f]=rest.split('>'); vfsWrite(f.trim(),t.trim().replace(/^['"]|['"]$/g,'')+'\n'); }
+      else print(rest.trim().replace(/^['"]|['"]$/g,''));
+    }catch(e){printErr('echo: '+e.message);}
+    return;
+  }
+  if (base==='cp'){if(args.length<2){printErr('cp: missing destination');return;}try{vfsCopy(args[0],args[1]);}catch(e){printErr('cp: '+e.message);}return;}
+  if (base==='mv'){if(args.length<2){printErr('mv: missing destination');return;}try{vfsMove(args[0],args[1]);}catch(e){printErr('mv: '+e.message);}return;}
+
+  if (base==='find'){
+    if(!args.length){printErr('find: missing name');return;}
+    const r=vfsWalk(cwd).filter(e=>e.name.toLowerCase().includes(args[0].toLowerCase()));
+    if(r.length)r.forEach(e=>print(e.path));else printDim(`find: no matches for '${args[0]}'`);
+    return;
+  }
+  if (base==='grep'){
+    if(args.length<2){printErr('Usage: grep <pattern> <file>');return;}
+    try{
+      const lines=vfsRead(args[1]).split('\n'); let found=false;
+      const re=flags.has('-i')?new RegExp(args[0],'i'):null;
+      lines.forEach((l,i)=>{if(re?re.test(l):l.includes(args[0])){print(`${i+1}: ${l}`);found=true;}});
+      if(!found)printDim('(no matches)');
+    }catch(e){printErr('grep: '+e.message);}
+    return;
+  }
+  if (base==='wc'){
+    if(!args.length){printErr('wc: missing file operand');return;}
+    try{const t=vfsRead(args[0]);print(`  ${String(t.split('\n').length-1).padStart(6)} lines  ${String(t.trim().split(/\s+/).filter(Boolean).length).padStart(6)} words  ${String(t.length).padStart(6)} chars  ${args[0]}`);}
+    catch(e){printErr('wc: '+e.message);}
+    return;
+  }
+  if (base==='head'){
+    if(!args.length){printErr('head: missing file operand');return;}
+    try{vfsRead(args[0]).split('\n').slice(0,nLines(flags)).forEach(l=>print(l));}catch(e){printErr('head: '+e.message);}
+    return;
+  }
+  if (base==='tail'){
+    if(!args.length){printErr('tail: missing file operand');return;}
+    try{vfsRead(args[0]).split('\n').slice(-nLines(flags)).forEach(l=>print(l));}catch(e){printErr('tail: '+e.message);}
+    return;
+  }
+  if (base==='sort'){
+    if(!args.length){printErr('sort: missing file operand');return;}
+    try{const ls=vfsRead(args[0]).split('\n').filter(Boolean);(flags.has('-r')?ls.sort().reverse():ls.sort()).forEach(l=>print(l));}
+    catch(e){printErr('sort: '+e.message);}
+    return;
+  }
+  if (base==='uniq'){
+    if(!args.length){printErr('uniq: missing file operand');return;}
+    try{const ls=vfsRead(args[0]).split('\n');ls.filter((l,i)=>i===0||l!==ls[i-1]).forEach(l=>print(l));}
+    catch(e){printErr('uniq: '+e.message);}
+    return;
+  }
+  if (base==='tr'){
+    if(args.length<3){printErr('Usage: tr <from> <to> <file>');return;}
+    try{let t=vfsRead(args[2]);for(let i=0;i<args[0].length;i++)t=t.split(args[0][i]).join(args[1][i]||'');print(t);}
+    catch(e){printErr('tr: '+e.message);}
+    return;
+  }
+  if (base==='cut'){
+    const delim=[...flags].find(f=>f.startsWith('-d'))?.[2]||'\t';
+    const field=+([...flags].find(f=>f.startsWith('-f'))?.[2]||'1')-1;
+    if(!args.length){printErr('cut: missing file operand');return;}
+    try{vfsRead(args[0]).split('\n').forEach(l=>print((l.split(delim)[field]??'')));}
+    catch(e){printErr('cut: '+e.message);}
+    return;
+  }
+  if (base==='tee'){
+    if(args.length<2){printErr('Usage: tee <input-file> <output-file>');return;}
+    try{const t=vfsRead(args[0]);vfsWrite(args[1],t);print(t);printDim(`(tee: also wrote to ${args[1]})`);}
+    catch(e){printErr('tee: '+e.message);}
+    return;
+  }
+  if (base==='base64'){
+    if(!args.length){printErr('Usage: base64 [-d] <file>');return;}
+    try{const t=vfsRead(args[0]);print(flags.has('-d')?atob(t.trim()):btoa(t));}
+    catch(e){printErr('base64: '+e.message);}
+    return;
+  }
+  if (base==='sha256sum'||base==='md5sum'){
+    if(!args.length){printErr(`${base}: missing file operand`);return;}
+    try{
+      const buf=await crypto.subtle.digest('SHA-256',new TextEncoder().encode(vfsRead(args[0])));
+      print(Array.from(new Uint8Array(buf)).map(b=>b.toString(16).padStart(2,'0')).join('')+'  '+args[0]);
+      if(base==='md5sum')printDim('(SHA-256 used — MD5 not available in Web Crypto)');
+    }catch(e){printErr(`${base}: `+e.message);}
+    return;
+  }
+  if (base==='chmod'){
+    if(args.length<2){printErr('Usage: chmod <mode> <file>');return;}
+    const mode=parseInt(args[0],8);
+    if(isNaN(mode)){printErr('chmod: invalid mode — use octal e.g. 755');return;}
+    const n=vfsNode(vfsAbs(args[1]));
+    if(!n){printErr(`chmod: no such file: ${args[1]}`);return;}
+    n.mode=mode;
+    return;
+  }
+
+  if (com==='env'){Object.entries(envVars).sort().forEach(([k,v])=>print(`${k}=${v}`));return;}
+  if (base==='export'){
+    const rest=com.slice(7).trim();
+    if(!rest.includes('=')){printErr('export: use: export VAR=value');return;}
+    const[k,...vp]=rest.split('='); envVars[k.trim()]=vp.join('=').trim();
+    if(k.trim()==='USER')updatePrompt();
+    return;
+  }
+
+  if(com==='history'){cmdHistory.slice(0,-1).forEach((c,i)=>print(`  ${String(i+1).padStart(3)}  ${c}`));return;}
+  if(com==='date'){print(new Date().toString());return;}
+  if(com==='whoami'){print(envVars.USER||'web-user');return;}
+  if(base==='uname'){print(flags.has('-a')?`LinuxPy 2.0 ${navigator.platform} Pyodide-${pyodide?.version||'loading'}`:'LinuxPy');return;}
+  if(com==='uptime'){const s=Math.round((Date.now()-BOOT_TIME)/1000);print(`up ${Math.floor(s/3600)}h ${Math.floor((s%3600)/60)}m ${s%60}s  load: ${(Math.random()*.5).toFixed(2)} ${(Math.random()*.3).toFixed(2)} ${(Math.random()*.2).toFixed(2)}`);return;}
+
+  if(com==='df'){
+    const used=vfsWalk('/').filter(e=>e.type==='file').reduce((s,e)=>s+(vfsNode(e.path)?.content?.length||0),0);
+    printCyan('Filesystem           Total      Used      Free');
+    print(`/ (virtual FS)       5.0 MB    ${(used/1024).toFixed(1)} KB   ${(5120-used/1024).toFixed(1)} KB`);
+    printDim('(in-memory VFS — cleared on page reload)');
+    return;
+  }
+  if(base==='du'){const t=args[0]||cwd;try{print(`${vfsDirSize(vfsAbs(t)).toLocaleString()} bytes  ${t}`);}catch(e){printErr('du: '+e.message);}return;}
+
+  if(com==='ps'||com==='ps aux'){
+    printCyan('  PID USER         %CPU %MEM CMD');
+    PROCS.forEach(p=>print(`${String(p.pid).padStart(5)} ${p.user.padEnd(12)} ${p.cpu.padStart(4)} ${p.mem.padStart(4)} ${p.cmd}`));
+    return;
+  }
+  if(base==='kill'){
+    const pid=parseInt(args[0]);
+    if(!pid){printErr('kill: missing PID');return;}
+    const idx=PROCS.findIndex(p=>p.pid===pid);
+    if(idx===-1){printErr(`kill: (${pid}) - No such process`);}
+    else if(pid<=1){printErr('kill: cannot kill init');}
+    else{PROCS.splice(idx,1);print(`[${pid}] Terminated`,'warn');}
+    return;
+  }
+  if(com==='top'){
+    const s=Math.round((Date.now()-BOOT_TIME)/1000);
+    printCyan(`top - ${new Date().toLocaleTimeString()} up ${Math.floor(s/60)}min`);
+    print(`Tasks: ${PROCS.length} total   1 running   ${PROCS.length-1} sleeping`,'dim');
+    print(`%Cpu: ${(Math.random()*5).toFixed(1)}us  ${(Math.random()*2).toFixed(1)}sy  ${(90+Math.random()*5).toFixed(1)}id`,'dim');
+    print(''); printCyan('  PID USER         %CPU %MEM CMD');
+    PROCS.forEach(p=>print(`${String(p.pid).padStart(5)} ${p.user.padEnd(12)} ${((+p.cpu+Math.random()*.1).toFixed(1)).padStart(4)} ${p.mem.padStart(4)} ${p.cmd}`));
+    return;
+  }
+
+  if(base==='sleep'){const n=parseFloat(args[0])||1;printDim(`Sleeping ${n}s…`);await new Promise(r=>setTimeout(r,n*1000));printDim('done.');return;}
+  if(base==='yes'){const s=args[0]||'y';for(let i=0;i<20;i++)print(s);printDim('…(limited to 20 lines)');return;}
+  if(base==='seq'){const[a,b,c]=args.map(Number);const[from,step,to]=args.length===1?[1,1,a]:args.length===2?[a,1,b]:[a,b,c];for(let n=from;n<=to;n+=step)print(String(n));return;}
+
+  // apt — not available; no legal issue, just not possible
+  if(['apt','apt-get'].includes(base)||com.startsWith('sudo apt')){
+    printErr(`${base}: not available in browser. Use pip install for Python packages.`); return;
+  }
+
+  // unknown
+  printErr(`${base}: command not found  (type 'help' for commands)`);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+//  BOOT
+// ─────────────────────────────────────────────────────────────────────────────
+(async () => {
+  print('LinuxPy beta — initializing…','dim');
+  // Start Pyodide in the background (don't block auth)
+  initPyodide();
+  await new Promise(r=>setTimeout(r,300));
+  print('');
+  await startAuth();
+})();
+</script>
+</body>
+</html>
